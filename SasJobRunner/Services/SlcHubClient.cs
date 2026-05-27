@@ -97,15 +97,14 @@ public class SlcHubClient
     }
 
     /// <summary>
-    /// Submits a SAS program to the Altair SLC Hub and returns the Job ID.
-    /// Follows the two-step protocol: POST /jobs to create, then POST /jobs/{id}/commit to schedule.
+    /// Creates a job on the Altair SLC Hub (step 1 of 2).
+    /// Returns the job ID. The job is NOT yet scheduled — call CommitJobAsync to schedule it.
     /// </summary>
-    public async Task<string> SubmitJobAsync(string bearerToken, string sasCode, CancellationToken ct)
+    public async Task<string> CreateJobAsync(string bearerToken, string sasCode, CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(30));
 
-        // ── Step 1: Create the job ───────────────────────────────────────────
         var createBody = new
         {
             @namespace = _namespace,
@@ -121,22 +120,22 @@ public class SlcHubClient
             }
         };
 
-        HttpResponseMessage createResponse;
+        HttpResponseMessage response;
         try
         {
-            var createRequest = new HttpRequestMessage(HttpMethod.Post, Url("jobs"))
+            var request = new HttpRequestMessage(HttpMethod.Post, Url("jobs"))
             {
                 Content = JsonContent.Create(createBody, options: _jsonOptions)
             };
-            createRequest.Headers.Authorization =
+            request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
-            createResponse = await _http.SendAsync(createRequest, cts.Token);
+            response = await _http.SendAsync(request, cts.Token);
         }
         catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
         {
             throw new SlcHubConnectivityException(
-                "The job submission request timed out after 30 seconds.", ex);
+                "The job creation request timed out after 30 seconds.", ex);
         }
         catch (HttpRequestException ex)
         {
@@ -144,35 +143,37 @@ public class SlcHubClient
                 "Unable to reach the SLC Hub. Check your network connection.", ex);
         }
 
-        if (!createResponse.IsSuccessStatusCode)
+        if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await createResponse.Content.ReadAsStringAsync(ct);
-            throw new SlcHubException((int)createResponse.StatusCode, errorBody);
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            throw new SlcHubException((int)response.StatusCode, errorBody);
         }
 
-        var created = await createResponse.Content.ReadFromJsonAsync<JobDto>(_jsonOptions, ct);
+        var created = await response.Content.ReadFromJsonAsync<JobDto>(_jsonOptions, ct);
         if (created?.Id is null or "")
             throw new SlcHubConnectivityException(
                 "The SLC Hub created the job but did not return a job ID.");
 
-        var jobId = created.Id;
+        return created.Id;
+    }
 
-        // ── Step 2: Commit the job (makes it eligible for scheduling) ────────
+    /// <summary>
+    /// Commits a previously created job (step 2 of 2), making it eligible for scheduling.
+    /// </summary>
+    public async Task CommitJobAsync(string bearerToken, string jobId, CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        HttpResponseMessage response;
         try
         {
-            var commitRequest = new HttpRequestMessage(HttpMethod.Post, Url($"jobs/{jobId}/commit"));
-            commitRequest.Headers.Authorization =
+            var request = new HttpRequestMessage(HttpMethod.Post, Url($"jobs/{jobId}/commit"));
+            request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
-            var commitResponse = await _http.SendAsync(commitRequest, cts.Token);
-
-            if (!commitResponse.IsSuccessStatusCode)
-            {
-                var errorBody = await commitResponse.Content.ReadAsStringAsync(ct);
-                throw new SlcHubException((int)commitResponse.StatusCode, errorBody);
-            }
+            response = await _http.SendAsync(request, cts.Token);
         }
-        catch (SlcHubException) { throw; }
         catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
         {
             throw new SlcHubConnectivityException(
@@ -184,6 +185,21 @@ public class SlcHubClient
                 "Unable to reach the SLC Hub during job commit. Check your network connection.", ex);
         }
 
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            throw new SlcHubException((int)response.StatusCode, errorBody);
+        }
+    }
+
+    /// <summary>
+    /// Submits a SAS program to the Altair SLC Hub and returns the Job ID.
+    /// Follows the two-step protocol: POST /jobs to create, then POST /jobs/{id}/commit to schedule.
+    /// </summary>
+    public async Task<string> SubmitJobAsync(string bearerToken, string sasCode, CancellationToken ct)
+    {
+        var jobId = await CreateJobAsync(bearerToken, sasCode, ct);
+        await CommitJobAsync(bearerToken, jobId, ct);
         return jobId;
     }
 

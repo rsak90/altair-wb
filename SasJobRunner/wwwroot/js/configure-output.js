@@ -1,33 +1,22 @@
-// configure-output.js
-// SAS Job Runner — Configure Output screen client-side logic
-// Tasks 11.1, 11.2, 11.3, 16.1, 16.2, 16.3
+// configure-output.js — SAS Job Runner Configure Output screen
 
 // ---------------------------------------------------------------------------
-// Module-level state
+// State
 // ---------------------------------------------------------------------------
 const state = {
-    jobId: null,           // string | null
+    jobId: null,           // string | null — set after Create succeeds
     pollingInterval: null, // setInterval handle | null
-    lastLog: "",           // last successfully retrieved log text
+    lastLog: '',           // last successfully retrieved log text
 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the #logContent element. The element lives inside a DevExtreme
- * dxTabPanel template, so it may not exist until the panel renders.
- * @returns {HTMLElement|null}
- */
 function getLogContent() {
     return document.getElementById('logContent');
 }
 
-/**
- * Writes text to the Log Tab and auto-scrolls to the bottom (Req 6.7).
- * @param {string} text
- */
 function setLogText(text) {
     var el = getLogContent();
     if (!el) return;
@@ -35,311 +24,68 @@ function setLogText(text) {
     el.scrollTop = el.scrollHeight;
 }
 
-/**
- * Reads the anti-forgery token from the <meta> tag injected by the Razor view.
- * @returns {string}
- */
 function getAntiForgeryToken() {
     var meta = document.querySelector('meta[name="RequestVerificationToken"]');
     return meta ? meta.getAttribute('content') : '';
 }
 
-// ---------------------------------------------------------------------------
-// Task 11.2 — Button State Machine
-// ---------------------------------------------------------------------------
+function btn(id) {
+    return DevExpress.ui.dxButton.getInstance(document.getElementById(id));
+}
 
-/**
- * Sets the enabled/disabled state of the Run and Cancel buttons.
- *
- * States:
- *   'idle'       – Run enabled,  Cancel disabled  (page load / job finished)
- *   'running'    – Run disabled, Cancel enabled   (job submitted or running)
- *   'cancelling' – Run disabled, Cancel disabled  (cancel request in-flight)
- *
- * Requirements: 2.6, 2.7, 3.5, 3.7, 4.5, 5.3
- *
- * @param {'idle'|'running'|'cancelling'} newState
- */
+// ---------------------------------------------------------------------------
+// Button state machine
+//
+//  'idle'      — Create enabled, Run disabled, Cancel disabled   (page load / job done)
+//  'created'   — Create disabled, Run enabled, Cancel enabled    (job created, not yet running)
+//  'running'   — Create disabled, Run disabled, Cancel enabled   (job committed / executing)
+//  'cancelling'— Create disabled, Run disabled, Cancel disabled  (cancel in-flight)
+// ---------------------------------------------------------------------------
 function setState(newState) {
-    var btnRun    = DevExpress.ui.dxButton.getInstance(document.getElementById('btnRun'));
-    var btnCancel = DevExpress.ui.dxButton.getInstance(document.getElementById('btnCancel'));
+    var create = btn('btnCreate');
+    var run    = btn('btnRun');
+    var cancel = btn('btnCancel');
 
     switch (newState) {
         case 'idle':
-            if (btnRun)    btnRun.option('disabled', false);
-            if (btnCancel) btnCancel.option('disabled', true);
+            if (create) create.option('disabled', false);
+            if (run)    run.option('disabled', true);
+            if (cancel) cancel.option('disabled', true);
             break;
-
+        case 'created':
+            if (create) create.option('disabled', true);
+            if (run)    run.option('disabled', false);
+            if (cancel) cancel.option('disabled', false);
+            break;
         case 'running':
-            if (btnRun)    btnRun.option('disabled', true);
-            if (btnCancel) btnCancel.option('disabled', false);
+            if (create) create.option('disabled', true);
+            if (run)    run.option('disabled', true);
+            if (cancel) cancel.option('disabled', false);
             break;
-
         case 'cancelling':
-            if (btnRun)    btnRun.option('disabled', true);
-            if (btnCancel) btnCancel.option('disabled', true);
+            if (create) create.option('disabled', true);
+            if (run)    run.option('disabled', true);
+            if (cancel) cancel.option('disabled', true);
             break;
-
         default:
             console.warn('setState: unknown state "' + newState + '"');
-            break;
     }
 }
 
 // ---------------------------------------------------------------------------
-// Task 16.1 — Polling loop: startPolling / stopPolling / pollCycle
+// Create button — POST /api/jobs/create
 // ---------------------------------------------------------------------------
-
-/**
- * Starts the 5-second polling loop.
- * Invokes the first poll cycle immediately, then every 5 seconds.
- * Requirements: 5.1, 6.1
- */
-function startPolling() {
-    if (state.pollingInterval !== null) {
-        // Already polling — do not start a second interval.
-        return;
-    }
-    // Fire immediately, then on interval.
-    pollCycle();
-    state.pollingInterval = setInterval(pollCycle, 5000);
-}
-
-/**
- * Stops the polling loop.
- * Requirements: 5.3, 5.4, 5.5, 6.4
- */
-function stopPolling() {
-    if (state.pollingInterval !== null) {
-        clearInterval(state.pollingInterval);
-        state.pollingInterval = null;
-    }
-}
-
-/**
- * One poll cycle: concurrently fetches job status and program log.
- *
- * Status handling:
- *   - Completed / Failed  → stop polling, final log fetch, setState('idle')
- *   - Cancelled           → stop polling, setState('idle')
- *   - poll error / 504    → stop polling, show error, setState('idle')
- *
- * Log handling:
- *   - Success             → replace #logContent, update state.lastLog, auto-scroll
- *   - Failure             → show error in #logContent, preserve state.lastLog,
- *                           do NOT stop polling (Req 6.5)
- *
- * Requirements: 5.1–5.5, 6.1–6.7
- */
-async function pollCycle() {
-    if (!state.jobId) return;
-
-    var jobId = state.jobId;
-
-    // Fire both requests concurrently (Req 5.1, 6.1).
-    var [statusResult, logResult] = await Promise.allSettled([
-        fetchJobStatus(jobId),
-        fetchJobLog(jobId)
-    ]);
-
-    // ── Handle log result first so the display is updated before we potentially
-    //    stop polling and do a final fetch below. ──────────────────────────────
-    if (logResult.status === 'fulfilled') {
-        // Task 16.2 — success: replace content and auto-scroll (Req 6.3, 6.7)
-        state.lastLog = logResult.value;
-        setLogText(state.lastLog);
-    } else {
-        // Task 16.2 — failure: show error, preserve previous log (Req 6.5)
-        var logError = logResult.reason && logResult.reason.message
-            ? logResult.reason.message
-            : 'Failed to retrieve the program log.';
-        setLogText('[Log fetch error: ' + logError + ']\n\n' + state.lastLog);
-        // Do NOT stop polling on log failure.
-    }
-
-    // ── Handle status result ─────────────────────────────────────────────────
-    if (statusResult.status === 'rejected') {
-        // Req 5.4, 5.5 — poll error or timeout: stop polling, reset UI
-        var statusError = statusResult.reason && statusResult.reason.message
-            ? statusResult.reason.message
-            : 'Failed to retrieve job status.';
-        stopPolling();
-        setLogText('Status poll error: ' + statusError);
-        setState('idle');
-        return;
-    }
-
-    var status = statusResult.value;
-
-    if (status === 'Completed' || status === 'Failed') {
-        // Req 5.3, 6.4 — terminal state: stop polling, do one final log fetch
-        stopPolling();
-        try {
-            var finalLog = await fetchJobLog(jobId);
-            state.lastLog = finalLog;
-            setLogText(finalLog);
-        } catch (e) {
-            // Final log fetch failed — keep whatever we last displayed.
-        }
-        setState('idle');
-
-    } else if (status === 'Cancelled') {
-        // Req 5.3 — cancelled: stop polling, reset UI
-        stopPolling();
-        setState('idle');
-    }
-    // Submitted / Running → continue polling (interval keeps running).
-}
-
-/**
- * Fetches the job status from the internal API.
- * @param {string} jobId
- * @returns {Promise<string>} Resolves with the status string.
- * @throws On non-OK response or network error.
- */
-async function fetchJobStatus(jobId) {
-    var response = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/status');
-
-    if (response.status === 401) {
-        window.location.href = '/account/login?expired=true';
-        throw new Error('Session expired.');
-    }
-
-    if (!response.ok) {
-        var errorData = null;
-        try { errorData = await response.json(); } catch (_) {}
-        var msg = errorData && errorData.message
-            ? errorData.message
-            : 'HTTP ' + response.status;
-        throw new Error(msg);
-    }
-
-    var data = await response.json();
-    return data.status;
-}
-
-/**
- * Fetches the program log from the internal API.
- * @param {string} jobId
- * @returns {Promise<string>} Resolves with the log text.
- * @throws On non-OK response or network error.
- */
-async function fetchJobLog(jobId) {
-    var response = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/log');
-
-    if (response.status === 401) {
-        window.location.href = '/account/login?expired=true';
-        throw new Error('Session expired.');
-    }
-
-    if (!response.ok) {
-        var errorData = null;
-        try { errorData = await response.json(); } catch (_) {}
-        var msg = errorData && errorData.message
-            ? errorData.message
-            : 'HTTP ' + response.status;
-        throw new Error(msg);
-    }
-
-    var data = await response.json();
-    return data.log || '';
-}
-
-// ---------------------------------------------------------------------------
-// Task 11.1 — Monaco Editor initialisation with SAS syntax highlighting
-// ---------------------------------------------------------------------------
-(function initMonaco() {
-    const CDN_BASE = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min";
-
-    require.config({ paths: { vs: CDN_BASE + "/vs" } });
-
-    require(["vs/editor/editor.main"], function () {
-
-        // Register the SAS language
-        monaco.languages.register({ id: "sas" });
-
-        // Monarch tokenizer for SAS (Req 2.4, Property 7)
-        monaco.languages.setMonarchTokensProvider("sas", {
-            keywords: [
-                "DATA", "PROC", "RUN", "END",
-                "SET", "MERGE", "BY", "IF", "THEN", "ELSE",
-                "DO", "OUTPUT", "KEEP", "DROP", "WHERE",
-                "INPUT", "CARDS", "DATALINES",
-                "TITLE", "OPTIONS", "LIBNAME", "FILENAME"
-            ],
-
-            // Case-insensitive matching
-            ignoreCase: true,
-
-            tokenizer: {
-                root: [
-                    [/\s+/, "white"],
-                    [/\*[^;]*;/, "comment"],
-                    [/\/\*/, "comment", "@blockComment"],
-                    [/'[^']*'/, "string"],
-                    [/"[^"]*"/, "string"],
-                    [/\d+(\.\d+)?([eE][+-]?\d+)?/, "number"],
-                    [
-                        /[A-Za-z_][A-Za-z0-9_]*/,
-                        {
-                            cases: {
-                                "@keywords": "keyword",
-                                "@default": "identifier"
-                            }
-                        }
-                    ],
-                    [/[;,.()\[\]{}]/, "delimiter"],
-                    [/[=<>!+\-*\/&|^~%]/, "operator"]
-                ],
-
-                blockComment: [
-                    [/[^/*]+/, "comment"],
-                    [/\*\//, "comment", "@pop"],
-                    [/[/*]/, "comment"]
-                ]
-            }
-        });
-
-        // Create the Monaco editor instance
-        window.monacoEditor = monaco.editor.create(
-            document.getElementById("monacoContainer"),
-            {
-                value: "",
-                language: "sas",
-                theme: "vs",
-                automaticLayout: true
-            }
-        );
-
-        // Set initial button state once editor and DevExtreme widgets are ready.
-        setState('idle');
-    });
-}());
-
-// ---------------------------------------------------------------------------
-// Task 11.3 — Run button click handler
-// ---------------------------------------------------------------------------
-
-/**
- * Handles the Run button click.
- *
- * 1. Validates that the editor contains non-whitespace content (Req 3.2).
- * 2. POSTs to /api/jobs/submit with anti-forgery token (Req 3.1, 7.6).
- * 3. On success: stores jobId, clears log, transitions to 'running',
- *    starts polling (Req 3.4, 3.5, 3.7, 3.9, 16.3).
- * 4. On error: displays message in Log Tab (Req 3.8).
- */
-async function onRunClick() {
-    // --- Validation (Req 3.2) ---
+async function onCreateClick() {
     var editorContent = window.monacoEditor ? window.monacoEditor.getValue() : '';
     if (!editorContent || !editorContent.trim()) {
-        setLogText('Please enter a SAS program before clicking Run.');
+        setLogText('Please enter a SAS program before clicking Create.');
         return;
     }
 
-    // --- Submit (Req 3.1) ---
+    setLogText('Creating job...');
+
     try {
-        var response = await fetch('/api/jobs/submit', {
+        var response = await fetch('/api/jobs/create', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -349,71 +95,77 @@ async function onRunClick() {
         });
 
         if (response.ok) {
-            // Success path (Req 3.4, 3.5, 3.7, 3.9)
             var data = await response.json();
             state.jobId = data.jobId;
             state.lastLog = '';
-            setLogText('');                // clear log immediately (Req 3.9)
-            setState('running');           // disable Run, enable Cancel
-            startPolling();               // Task 16.3 — begin polling (Req 3.4)
+            setLogText('Job created (ID: ' + state.jobId + '). Click Run to submit for execution.');
+            setState('created');
         } else {
             var errorData = null;
             try { errorData = await response.json(); } catch (_) {}
-
-            if (response.status === 401) {
-                window.location.href = '/account/login?expired=true';
-                return;
-            }
-
-            if (response.status === 409) {
-                setLogText(errorData && errorData.message
-                    ? errorData.message
-                    : 'A job is already active. Wait for it to complete or cancel it before submitting a new one.');
-            } else if (response.status === 413) {
-                setLogText(errorData && errorData.message
-                    ? errorData.message
-                    : 'The SAS program exceeds the maximum allowed size of 1 MB.');
-            } else {
-                setLogText(errorData && errorData.message
-                    ? errorData.message
-                    : 'An error occurred while submitting the job (HTTP ' + response.status + ').');
-            }
+            if (response.status === 401) { window.location.href = '/account/login?expired=true'; return; }
+            setLogText(errorData && errorData.message
+                ? errorData.message
+                : 'Failed to create job (HTTP ' + response.status + ').');
         }
-    } catch (networkError) {
-        setLogText('Unable to reach the server. Please check your connection and try again.');
+    } catch (e) {
+        setLogText('Unable to reach the server. Please check your connection.');
     }
 }
 
 // ---------------------------------------------------------------------------
-// Task 20.1 — Cancel button click handler
+// Run button — POST /api/jobs/{jobId}/commit
 // ---------------------------------------------------------------------------
+async function onRunClick() {
+    if (!state.jobId) {
+        setLogText('No job created yet. Click Create first.');
+        return;
+    }
 
-/**
- * Handles the Cancel button click.
- *
- * 1. Transitions to 'cancelling' (Run disabled, Cancel disabled).
- * 2. Sends DELETE /api/jobs/{jobId}/cancel with anti-forgery token.
- * 3. On success: stop polling, setState('idle'), show cancellation message (Req 4.3).
- * 4. On error: show error in Log Tab, setState('running') to re-enable Cancel (Req 4.4).
- * 5. On timeout (503): show timeout message, setState('running') to continue polling (Req 4.6).
- *
- * Requirements: 4.1, 4.3, 4.4, 4.6
- */
-async function onCancelClick() {
-    if (!state.jobId) return;
-
-    setState('cancelling');  // Req 4.5 — both buttons disabled while cancel in-flight
+    setLogText('Submitting job for execution...');
+    setState('running');
 
     try {
-        var response = await fetch('/api/jobs/' + encodeURIComponent(state.jobId) + '/cancel', {
-            method: 'DELETE',
+        var response = await fetch('/api/jobs/' + encodeURIComponent(state.jobId) + '/commit', {
+            method: 'POST',
             headers: {
                 'RequestVerificationToken': getAntiForgeryToken()
             }
         });
 
         if (response.ok) {
-            // Req 4.3 — success: stop polling, reset UI, show cancellation message
+            setLogText('');       // clear log — polling will fill it
+            startPolling();
+        } else {
+            var errorData = null;
+            try { errorData = await response.json(); } catch (_) {}
+            if (response.status === 401) { window.location.href = '/account/login?expired=true'; return; }
+            setLogText(errorData && errorData.message
+                ? errorData.message
+                : 'Failed to commit job (HTTP ' + response.status + ').');
+            setState('created'); // revert — job still exists, user can retry Run
+        }
+    } catch (e) {
+        setLogText('Unable to reach the server. Please check your connection.');
+        setState('created');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cancel button — DELETE /api/jobs/{jobId}/cancel
+// ---------------------------------------------------------------------------
+async function onCancelClick() {
+    if (!state.jobId) return;
+
+    setState('cancelling');
+
+    try {
+        var response = await fetch('/api/jobs/' + encodeURIComponent(state.jobId) + '/cancel', {
+            method: 'DELETE',
+            headers: { 'RequestVerificationToken': getAntiForgeryToken() }
+        });
+
+        if (response.ok) {
             stopPolling();
             state.jobId = null;
             state.lastLog = '';
@@ -422,61 +174,154 @@ async function onCancelClick() {
         } else {
             var errorData = null;
             try { errorData = await response.json(); } catch (_) {}
-
-            if (response.status === 401) {
-                window.location.href = '/account/login?expired=true';
-                return;
-            }
-
-            // Req 4.4 — Hub cancel error: show error, re-enable Cancel, continue polling
-            var msg = errorData && errorData.message
+            if (response.status === 401) { window.location.href = '/account/login?expired=true'; return; }
+            setLogText(errorData && errorData.message
                 ? errorData.message
-                : 'Cancel request failed (HTTP ' + response.status + ').';
-            setLogText(msg);
+                : 'Cancel failed (HTTP ' + response.status + ').');
             setState('running');
         }
-    } catch (networkError) {
-        // Req 4.6 — network failure treated as timeout: show message, continue polling
-        setLogText('Unable to reach the server to cancel the job. Polling will continue.');
+    } catch (e) {
+        setLogText('Unable to reach the server to cancel. Polling will continue.');
         setState('running');
     }
 }
 
 // ---------------------------------------------------------------------------
-// Task 21.3 — Logout button click handler
+// Logout button
 // ---------------------------------------------------------------------------
-
-/**
- * Handles the Logout button click.
- *
- * POSTs to /account/logout (with anti-forgery token), then redirects to login.
- * Requirements: 1.9
- */
 async function onLogoutClick() {
     try {
         await fetch('/account/logout', {
             method: 'POST',
-            headers: {
-                'RequestVerificationToken': getAntiForgeryToken()
-            }
+            headers: { 'RequestVerificationToken': getAntiForgeryToken() }
         });
-    } catch (_) {
-        // Even if the request fails, redirect to login to clear client state.
-    }
+    } catch (_) {}
     window.location.href = '/account/login';
 }
 
 // ---------------------------------------------------------------------------
-// Initialisation — wire up button handlers on DOMContentLoaded
+// Polling
 // ---------------------------------------------------------------------------
-document.addEventListener('DOMContentLoaded', function () {
-    var runEl = document.getElementById('btnRun');
-    if (runEl) {
-        var btnRunInstance = DevExpress.ui.dxButton.getInstance(runEl);
-        if (btnRunInstance) {
-            btnRunInstance.option('onClick', onRunClick);
-        } else {
-            runEl.addEventListener('click', onRunClick);
-        }
+function startPolling() {
+    if (state.pollingInterval !== null) return;
+    pollCycle();
+    state.pollingInterval = setInterval(pollCycle, 5000);
+}
+
+function stopPolling() {
+    if (state.pollingInterval !== null) {
+        clearInterval(state.pollingInterval);
+        state.pollingInterval = null;
     }
-});
+}
+
+async function pollCycle() {
+    if (!state.jobId) return;
+    var jobId = state.jobId;
+
+    var [statusResult, logResult] = await Promise.allSettled([
+        fetchJobStatus(jobId),
+        fetchJobLog(jobId)
+    ]);
+
+    // Update log display
+    if (logResult.status === 'fulfilled') {
+        state.lastLog = logResult.value;
+        setLogText(state.lastLog);
+    } else {
+        var logErr = logResult.reason && logResult.reason.message
+            ? logResult.reason.message : 'Failed to retrieve log.';
+        setLogText('[Log error: ' + logErr + ']\n\n' + state.lastLog);
+    }
+
+    // Handle status
+    if (statusResult.status === 'rejected') {
+        var statusErr = statusResult.reason && statusResult.reason.message
+            ? statusResult.reason.message : 'Failed to retrieve status.';
+        stopPolling();
+        setLogText('Status poll error: ' + statusErr);
+        setState('idle');
+        return;
+    }
+
+    var status = statusResult.value;
+
+    if (status === 'Completed' || status === 'Failed') {
+        stopPolling();
+        try {
+            var finalLog = await fetchJobLog(jobId);
+            state.lastLog = finalLog;
+            setLogText(finalLog);
+        } catch (_) {}
+        state.jobId = null;
+        setState('idle');
+    } else if (status === 'Cancelled') {
+        stopPolling();
+        state.jobId = null;
+        setState('idle');
+    }
+    // Submitted / Running → keep polling
+}
+
+async function fetchJobStatus(jobId) {
+    var response = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/status');
+    if (response.status === 401) { window.location.href = '/account/login?expired=true'; throw new Error('Session expired.'); }
+    if (!response.ok) {
+        var err = null; try { err = await response.json(); } catch (_) {}
+        throw new Error(err && err.message ? err.message : 'HTTP ' + response.status);
+    }
+    var data = await response.json();
+    return data.status;
+}
+
+async function fetchJobLog(jobId) {
+    var response = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/log');
+    if (response.status === 401) { window.location.href = '/account/login?expired=true'; throw new Error('Session expired.'); }
+    if (!response.ok) {
+        var err = null; try { err = await response.json(); } catch (_) {}
+        throw new Error(err && err.message ? err.message : 'HTTP ' + response.status);
+    }
+    var data = await response.json();
+    return data.log || '';
+}
+
+// ---------------------------------------------------------------------------
+// Monaco Editor init
+// ---------------------------------------------------------------------------
+(function initMonaco() {
+    require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+        monaco.languages.register({ id: 'sas' });
+        monaco.languages.setMonarchTokensProvider('sas', {
+            keywords: ['DATA','PROC','RUN','END','SET','MERGE','BY','IF','THEN','ELSE',
+                       'DO','OUTPUT','KEEP','DROP','WHERE','INPUT','CARDS','DATALINES',
+                       'TITLE','OPTIONS','LIBNAME','FILENAME'],
+            ignoreCase: true,
+            tokenizer: {
+                root: [
+                    [/\s+/, 'white'],
+                    [/\*[^;]*;/, 'comment'],
+                    [/\/\*/, 'comment', '@blockComment'],
+                    [/'[^']*'/, 'string'],
+                    [/"[^"]*"/, 'string'],
+                    [/\d+(\.\d+)?([eE][+-]?\d+)?/, 'number'],
+                    [/[A-Za-z_][A-Za-z0-9_]*/, { cases: { '@keywords': 'keyword', '@default': 'identifier' } }],
+                    [/[;,.()\[\]{}]/, 'delimiter'],
+                    [/[=<>!+\-*\/&|^~%]/, 'operator']
+                ],
+                blockComment: [
+                    [/[^/*]+/, 'comment'],
+                    [/\*\//, 'comment', '@pop'],
+                    [/[/*]/, 'comment']
+                ]
+            }
+        });
+
+        window.monacoEditor = monaco.editor.create(
+            document.getElementById('monacoContainer'),
+            { value: '', language: 'sas', theme: 'vs', automaticLayout: true }
+        );
+
+        setState('idle');
+    });
+}());

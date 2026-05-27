@@ -385,6 +385,88 @@ async function onRunClick() {
 }
 
 // ---------------------------------------------------------------------------
+// Task 20.1 — Cancel button click handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Handles the Cancel button click.
+ *
+ * 1. Transitions to 'cancelling' (Run disabled, Cancel disabled).
+ * 2. Sends DELETE /api/jobs/{jobId}/cancel with anti-forgery token.
+ * 3. On success: stop polling, setState('idle'), show cancellation message (Req 4.3).
+ * 4. On error: show error in Log Tab, setState('running') to re-enable Cancel (Req 4.4).
+ * 5. On timeout (503): show timeout message, setState('running') to continue polling (Req 4.6).
+ *
+ * Requirements: 4.1, 4.3, 4.4, 4.6
+ */
+async function onCancelClick() {
+    if (!state.jobId) return;
+
+    setState('cancelling');  // Req 4.5 — both buttons disabled while cancel in-flight
+
+    try {
+        var response = await fetch('/api/jobs/' + encodeURIComponent(state.jobId) + '/cancel', {
+            method: 'DELETE',
+            headers: {
+                'RequestVerificationToken': getAntiForgeryToken()
+            }
+        });
+
+        if (response.ok) {
+            // Req 4.3 — success: stop polling, reset UI, show cancellation message
+            stopPolling();
+            state.jobId = null;
+            state.lastLog = '';
+            setLogText('Job cancelled.');
+            setState('idle');
+        } else {
+            var errorData = null;
+            try { errorData = await response.json(); } catch (_) {}
+
+            if (response.status === 401) {
+                window.location.href = '/account/login?expired=true';
+                return;
+            }
+
+            // Req 4.4 — Hub cancel error: show error, re-enable Cancel, continue polling
+            var msg = errorData && errorData.message
+                ? errorData.message
+                : 'Cancel request failed (HTTP ' + response.status + ').';
+            setLogText(msg);
+            setState('running');
+        }
+    } catch (networkError) {
+        // Req 4.6 — network failure treated as timeout: show message, continue polling
+        setLogText('Unable to reach the server to cancel the job. Polling will continue.');
+        setState('running');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Task 21.3 — Logout button click handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Handles the Logout button click.
+ *
+ * POSTs to /account/logout (with anti-forgery token), then redirects to login.
+ * Requirements: 1.9
+ */
+async function onLogoutClick() {
+    try {
+        await fetch('/account/logout', {
+            method: 'POST',
+            headers: {
+                'RequestVerificationToken': getAntiForgeryToken()
+            }
+        });
+    } catch (_) {
+        // Even if the request fails, redirect to login to clear client state.
+    }
+    window.location.href = '/account/login';
+}
+
+// ---------------------------------------------------------------------------
 // Initialisation — wire up button handlers on DOMContentLoaded
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', function () {

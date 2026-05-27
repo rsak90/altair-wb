@@ -21,11 +21,17 @@ public class AccountController : Controller
 
     /// <summary>
     /// GET /account/login — renders the login form.
+    /// If the <c>expired</c> query parameter is present, shows a session-expired message (Req 1.8).
     /// </summary>
     [HttpGet]
-    public IActionResult Login()
+    public IActionResult Login([FromQuery] bool expired = false)
     {
-        return View(new LoginViewModel());
+        var model = new LoginViewModel();
+        if (expired)
+        {
+            model.ErrorMessage = "Your session has expired. Please log in again.";
+        }
+        return View(model);
     }
 
     /// <summary>

@@ -108,6 +108,61 @@ public class JobApiController : ControllerBase
         }
     }
 
+    // ── DELETE /api/jobs/{jobId}/cancel ─────────────────────────────────────
+
+    /// <summary>
+    /// Cancels an active job on the Altair SLC Hub.
+    /// On success, clears the active job from Session.
+    /// </summary>
+    /// <remarks>
+    /// Satisfies Requirements 4.2, 7.5, 7.6.
+    /// </remarks>
+    [HttpDelete("{jobId}/cancel")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Cancel(string jobId, CancellationToken ct)
+    {
+        // Req 7.5 — 401 if no Bearer Token in Session
+        var bearerToken = GetBearerToken();
+        if (bearerToken is null)
+        {
+            return StatusCode(401, new ApiErrorResponse
+            {
+                StatusCode = 401,
+                Message = "Session expired or not authenticated. Please log in again."
+            });
+        }
+
+        try
+        {
+            await _hub.CancelJobAsync(bearerToken, jobId, ct);
+
+            // Clear active job from Session on successful cancellation (Req 4.2).
+            HttpContext.Session.Remove("ActiveJobId");
+            HttpContext.Session.Remove("ActiveJobStatus");
+
+            return Ok();
+        }
+        catch (SlcHubException ex)
+        {
+            return StatusCode(ex.StatusCode, new ApiErrorResponse
+            {
+                StatusCode = ex.StatusCode,
+                Message = string.IsNullOrWhiteSpace(ex.ErrorBody)
+                    ? $"The SLC Hub returned an error (HTTP {ex.StatusCode})."
+                    : ex.ErrorBody
+            });
+        }
+        catch (SlcHubConnectivityException ex)
+        {
+            // 30-second timeout → 503 (Req 4.6 — continue polling on timeout)
+            return StatusCode(503, new ApiErrorResponse
+            {
+                StatusCode = 503,
+                Message = ex.Message
+            });
+        }
+    }
+
     // ── GET /api/jobs/{jobId}/status ─────────────────────────────────────────
 
     /// <summary>

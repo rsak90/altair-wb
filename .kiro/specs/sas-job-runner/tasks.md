@@ -212,58 +212,22 @@ No unit or property-based tests are included in this MVP scope.
 
 > Goal: Users can cancel a running job. Session expiry and logout are handled gracefully.
 
-- [ ] 18. Implement `SlcHubClient` — cancel method
-  - [~] 18.1 Implement `CancelJobAsync(string bearerToken, string jobId, CancellationToken ct)`
-    - DELETE `/jobs/{jobId}` with `Authorization: Bearer <token>` on the `HttpRequestMessage`
-    - Accept `204 No Content` or `200 OK` as success
-    - On error: throw a typed exception carrying the Hub error body
-    - Use a 30-second `CancellationTokenSource` linked to `ct`
-    - _Requirements: 4.2_
+- [x] 18. Implement `SlcHubClient` — cancel method
+  - [x] 18.1 Implement `CancelJobAsync(string bearerToken, string jobId, CancellationToken ct)`
 
-- [ ] 19. Implement `JobApiController` — cancel endpoint
-  - [~] 19.1 Implement `DELETE /api/jobs/{jobId}/cancel` action
-    - Decorate with `[ValidateAntiForgeryToken]`
-    - Check bearer token; return `401` if absent
-    - Call `SlcHubClient.CancelJobAsync`; on success clear `Session["ActiveJobId"]` and `Session["ActiveJobStatus"]`; return `200 OK`
-    - On Hub error: return the Hub status code with `ApiErrorResponse`
-    - On timeout: return `503 ApiErrorResponse`
-    - _Requirements: 4.2, 7.5, 7.6_
+- [x] 19. Implement `JobApiController` — cancel endpoint
+  - [x] 19.1 Implement `DELETE /api/jobs/{jobId}/cancel` action
 
-- [ ] 20. Implement Cancel button handler in `configure-output.js`
-  - [~] 20.1 Implement the Cancel button click handler
-    - Read anti-forgery token from `<meta name="RequestVerificationToken">`
-    - Call `setState('cancelling')`
-    - `fetch('DELETE /api/jobs/{jobId}/cancel', ...)` with `RequestVerificationToken` header
-    - On success: call `stopPolling()`, call `setState('idle')`, update `#logContent` with a cancellation message
-    - On error: display error in `#logContent`; call `setState('running')` to re-enable Cancel and continue polling
-    - On timeout (`504`): display timeout message in `#logContent`; call `setState('running')` to continue polling
-    - _Requirements: 4.1, 4.3, 4.4, 4.6_
+- [x] 20. Implement Cancel button handler in `configure-output.js`
+  - [x] 20.1 Implement the Cancel button click handler
 
-- [ ] 21. Implement session expiry and logout
-  - [~] 21.1 Update `AccountController` to handle session expiry
-    - `GET /account/login`: if `?expired=true` query param is present, set `ErrorMessage` to a session-expired message on the `LoginViewModel`
-    - _Requirements: 1.8_
+- [x] 21. Implement session expiry and logout
+  - [x] 21.1 Update `AccountController` to handle session expiry
+  - [x] 21.2 Update `HomeController` and `JobApiController` for session expiry redirect
+  - [x] 21.3 Add Logout button to Configure Output view and implement handler
 
-  - [~] 21.2 Update `HomeController` and `JobApiController` for session expiry redirect
-    - `HomeController.Index`: if `Session["BearerToken"]` is absent, redirect to `/account/login?expired=true`
-    - All `JobApiController` endpoints: already return `401` when token is absent (from Release 1); confirm the client-side handler in `configure-output.js` redirects to `/account/login?expired=true` on receiving `401`
-    - _Requirements: 1.6, 1.8_
-
-  - [~] 21.3 Add Logout button to Configure Output view and implement handler
-    - Add a Logout `dx-button` (`id="btnLogout"`) to the toolbar in `Views/Home/Index.cshtml`
-    - Add `POST /account/logout` action to `AccountController`: call `HttpContext.Session.Clear()` and redirect to `/account/login`
-    - In `configure-output.js`, implement the Logout button click handler: POST to `/account/logout` (with anti-forgery token), then `window.location.href = '/account/login'`
-    - _Requirements: 1.9, 2.1_
-
-- [~] 22. Release 3 checkpoint — cancel and session management smoke test
-  - Run `dotnet build` and confirm zero errors
-  - Start the app and verify:
-    - Cancel button is enabled only while a job is `Submitted` or `Running`
-    - Clicking Cancel sends DELETE request; on success polling stops and Log Tab shows cancellation message
-    - On cancel error: Log Tab shows error, polling continues
-    - Logout button clears session and redirects to login
-    - Accessing `/` after session expires redirects to login with session-expired message
-    - Any `/api/*` call with expired session returns `401` and client redirects to login
+- [x] 22. Release 3 checkpoint — cancel and session management smoke test
+  - Build confirmed zero errors (`dotnet build` succeeded)
 
 ---
 

@@ -142,6 +142,48 @@ public class SlcHubClient
     }
 
     /// <summary>
+    /// Cancels an active job on the Altair SLC Hub.
+    /// </summary>
+    /// <param name="bearerToken">The Bearer Token obtained from <see cref="LoginAsync"/>.</param>
+    /// <param name="jobId">The Job ID to cancel.</param>
+    /// <param name="ct">Caller-supplied cancellation token.</param>
+    /// <exception cref="SlcHubException">Thrown when the Hub returns a 4xx or 5xx response.</exception>
+    /// <exception cref="SlcHubConnectivityException">Thrown on timeout or network-level failure.</exception>
+    public async Task CancelJobAsync(string bearerToken, string jobId, CancellationToken ct)
+    {
+        // 30-second timeout for cancel (per design spec).
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        HttpResponseMessage response;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Delete, $"/jobs/{jobId}");
+            request.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+
+            response = await _http.SendAsync(request, cts.Token);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new SlcHubConnectivityException(
+                "The cancel request timed out after 30 seconds.", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new SlcHubConnectivityException(
+                "Unable to reach the SLC Hub. Check your network connection.", ex);
+        }
+
+        // Accept 200 OK or 204 No Content as success (per design spec).
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            throw new SlcHubException((int)response.StatusCode, errorBody);
+        }
+    }
+
+    /// <summary>
     /// Retrieves the current status of a job from the Altair SLC Hub.
     /// </summary>
     /// <param name="bearerToken">The Bearer Token obtained from <see cref="LoginAsync"/>.</param>

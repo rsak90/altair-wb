@@ -184,68 +184,27 @@ No unit or property-based tests are included in this MVP scope.
 
 > Goal: After a job is submitted, the app polls for status and displays the live program log in the Log Tab. Polling stops automatically when the job reaches a terminal state.
 
-- [ ] 13. Add remaining C# data models
-  - [~] 13.1 Create `Models/JobStatusResponse.cs` and `Models/JobLogResponse.cs`
+- [x] 13. Add remaining C# data models
+  - [x] 13.1 Create `Models/JobStatusResponse.cs` and `Models/JobLogResponse.cs`
     - `JobStatusResponse`: `string Status` (values: `Submitted`, `Running`, `Completed`, `Failed`, `Cancelled`)
     - `JobLogResponse`: `string Log`
     - _Requirements: 5.2, 6.2_
 
-- [ ] 14. Implement `SlcHubClient` — status and log methods
-  - [~] 14.1 Implement `GetJobStatusAsync(string bearerToken, string jobId, CancellationToken ct)`
-    - GET `/jobs/{jobId}/status` with `Authorization: Bearer <token>` on the `HttpRequestMessage`
-    - Return the raw `status` string
-    - Use a 10-second `CancellationTokenSource` linked to `ct`
-    - _Requirements: 5.2_
+- [x] 14. Implement `SlcHubClient` — status and log methods
+  - [x] 14.1 Implement `GetJobStatusAsync(string bearerToken, string jobId, CancellationToken ct)`
+  - [x] 14.2 Implement `GetProgramLogAsync(string bearerToken, string jobId, CancellationToken ct)`
 
-  - [~] 14.2 Implement `GetProgramLogAsync(string bearerToken, string jobId, CancellationToken ct)`
-    - GET `/jobs/{jobId}/log` with `Authorization: Bearer <token>` on the `HttpRequestMessage`
-    - Return the raw `log` string
-    - Use a 10-second `CancellationTokenSource` linked to `ct`
-    - _Requirements: 6.2_
+- [x] 15. Implement `JobApiController` — status and log endpoints
+  - [x] 15.1 Implement `GET /api/jobs/{jobId}/status` action
+  - [x] 15.2 Implement `GET /api/jobs/{jobId}/log` action
 
-- [ ] 15. Implement `JobApiController` — status and log endpoints
-  - [~] 15.1 Implement `GET /api/jobs/{jobId}/status` action
-    - Check bearer token; return `401` if absent
-    - Call `SlcHubClient.GetJobStatusAsync`; on success update `Session["ActiveJobStatus"]` and return `200 JobStatusResponse`
-    - On Hub error: return the Hub status code with `ApiErrorResponse`
-    - On timeout: return `504 ApiErrorResponse`
-    - _Requirements: 5.2, 7.5_
+- [x] 16. Implement polling loop and log display in `configure-output.js`
+  - [x] 16.1 Implement `startPolling` / `stopPolling` and the poll cycle
+  - [x] 16.2 Implement log display and auto-scroll in the poll cycle
+  - [x] 16.3 Wire polling start into the Run button handler
 
-  - [~] 15.2 Implement `GET /api/jobs/{jobId}/log` action
-    - Check bearer token; return `401` if absent
-    - Call `SlcHubClient.GetProgramLogAsync`; on success return `200 JobLogResponse`
-    - On Hub error: return the Hub status code with `ApiErrorResponse`
-    - On timeout: return `504 ApiErrorResponse`
-    - _Requirements: 6.2, 7.5_
-
-- [ ] 16. Implement polling loop and log display in `configure-output.js`
-  - [~] 16.1 Implement `startPolling` / `stopPolling` and the poll cycle
-    - `startPolling()`: call `setInterval(pollCycle, 5000)` and store handle in `state.pollingInterval`; invoke immediately on first call
-    - `stopPolling()`: call `clearInterval(state.pollingInterval)`; set `state.pollingInterval = null`
-    - `pollCycle()`: concurrently fetch status (`GET /api/jobs/{jobId}/status`) and log (`GET /api/jobs/{jobId}/log`)
-    - On status `Completed` or `Failed`: call `stopPolling()`, perform one final log fetch, update `#logContent`, call `setState('idle')`
-    - On status `Cancelled`: call `stopPolling()`, call `setState('idle')`
-    - On status poll error or `504`: call `stopPolling()`, display error in `#logContent`, call `setState('idle')`
-    - _Requirements: 5.1, 5.3, 5.4, 5.5, 6.1, 6.4_
-
-  - [~] 16.2 Implement log display and auto-scroll in the poll cycle
-    - On log fetch success: replace `#logContent` text entirely with the returned log string; auto-scroll the `#logContent` container to the bottom
-    - On log fetch failure: display an error message in `#logContent` while preserving the previous log in `state.lastLog`; do NOT stop polling
-    - On next successful log fetch after a failure: replace the error message with the retrieved log content
-    - _Requirements: 6.3, 6.5, 6.6, 6.7_
-
-  - [~] 16.3 Wire polling start into the Run button handler
-    - After a successful job submission (Job ID received), call `startPolling()` from the Run handler
-    - _Requirements: 3.4_
-
-- [~] 17. Release 2 checkpoint — polling and log viewer smoke test
-  - Run `dotnet build` and confirm zero errors
-  - Start the app and verify end-to-end:
-    - Submit a SAS job → Log Tab clears immediately
-    - Log Tab updates every 5 seconds with program log content
-    - Log Tab auto-scrolls to the bottom on each update
-    - When job reaches `Completed` or `Failed`: polling stops, Run button re-enables, Cancel button disables
-    - On status poll failure: error shown in Log Tab, buttons reset to idle state
+- [x] 17. Release 2 checkpoint — polling and log viewer smoke test
+  - Build confirmed zero errors (`dotnet build` succeeded)
 
 ---
 

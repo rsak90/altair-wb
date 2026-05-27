@@ -105,4 +105,5 @@ C:\Users\USER\altair-wb\SasJobRunner\obj\Debug\net10.0\SasJobRunner.csproj.Assem
 C:\Users\USER\altair-wb\SasJobRunner\obj\Debug\net10.0\SasJobRunner.MvcApplicationPartsAssemblyInfo.cs
 C:\Users\USER\altair-wb\SasJobRunner\obj\Debug\net10.0\SasJobRu.849CE9D8.Up2Date
 C:\Users\USER\altair-wb\SasJobRunner\obj\Debug\net10.0\compressed\7kgbltllem-{0}-hnhepogpjc-hnhepogpjc.gz
-C:\Users\USER\altair-wb\SasJobRunner\obj\Debug\net10.0\compressed\vvn8xummk5-{0}-10fcj64kd7-10fcj64kd7.gz
+C:\Users\USER\altair-wb\SasJobRunner\obj\Debug\net10.0\SasJobRunner.sourcelink.json
+C:\Users\USER\altair-wb\SasJobRunner\obj\Debug\net10.0\compressed\vvn8xummk5-{0}-uslsy1d676-uslsy1d676.gz

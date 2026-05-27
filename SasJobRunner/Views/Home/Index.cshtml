@@ -7,7 +7,7 @@
 
 @section Styles {
     @* DevExtreme CSS *@
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/devextreme@25.2.7/dist/css/dx.light.css" />
+    <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/25.1.7/css/dx.light.css" />
 
     <style>
         /* ── Page layout ─────────────────────────────────────────── */
@@ -73,12 +73,12 @@
 
 @section Scripts {
     @* DevExtreme JS *@
-    <script src="https://cdn.jsdelivr.net/npm/devextreme@25.2.7/dist/js/dx.all.js"></script>
+    <script src="https://cdn3.devexpress.com/jslib/25.1.7/js/dx.all.js"></script>
 
     <script>
         (function () {
             // ── Run button (Req 2.6) ──────────────────────────────────────────
-            DevExpress.ui.dxButton(document.getElementById('btnRun'), {
+            new DevExpress.ui.dxButton(document.getElementById('btnRun'), {
                 text: 'Run',
                 type: 'success',
                 disabled: false,
@@ -90,7 +90,7 @@
             });
 
             // ── Cancel button (Req 2.7) ───────────────────────────────────────
-            DevExpress.ui.dxButton(document.getElementById('btnCancel'), {
+            new DevExpress.ui.dxButton(document.getElementById('btnCancel'), {
                 text: 'Cancel',
                 type: 'danger',
                 disabled: true,
@@ -102,7 +102,7 @@
             });
 
             // ── Logout button (Req 1.9, 2.1) ─────────────────────────────────
-            DevExpress.ui.dxButton(document.getElementById('btnLogout'), {
+            new DevExpress.ui.dxButton(document.getElementById('btnLogout'), {
                 text: 'Logout',
                 type: 'normal',
                 onClick: function () {
@@ -113,7 +113,7 @@
             });
 
             // ── Tab panel with a single "Log" tab (Req 2.5, 2.8, 2.10) ──────
-            DevExpress.ui.dxTabPanel(document.getElementById('logTabPanel'), {
+            new DevExpress.ui.dxTabPanel(document.getElementById('logTabPanel'), {
                 items: [
                     {
                         title: 'Log',

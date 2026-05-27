@@ -141,6 +141,107 @@ public class SlcHubClient
         return submitResponse.JobId;
     }
 
+    /// <summary>
+    /// Retrieves the current status of a job from the Altair SLC Hub.
+    /// </summary>
+    /// <param name="bearerToken">The Bearer Token obtained from <see cref="LoginAsync"/>.</param>
+    /// <param name="jobId">The Job ID to query.</param>
+    /// <param name="ct">Caller-supplied cancellation token.</param>
+    /// <returns>The status string (e.g. Submitted, Running, Completed, Failed, Cancelled).</returns>
+    /// <exception cref="SlcHubException">Thrown when the Hub returns a 4xx or 5xx response.</exception>
+    /// <exception cref="SlcHubConnectivityException">Thrown on timeout or network-level failure.</exception>
+    public async Task<string> GetJobStatusAsync(string bearerToken, string jobId, CancellationToken ct)
+    {
+        // 10-second timeout for status polls (per design spec).
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
+
+        HttpResponseMessage response;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"/jobs/{jobId}/status");
+            request.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+
+            response = await _http.SendAsync(request, cts.Token);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new SlcHubConnectivityException(
+                "The status poll request timed out after 10 seconds.", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new SlcHubConnectivityException(
+                "Unable to reach the SLC Hub. Check your network connection.", ex);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            throw new SlcHubException((int)response.StatusCode, errorBody);
+        }
+
+        var statusResponse = await response.Content.ReadFromJsonAsync<JobStatusDto>(
+            _jsonOptions, ct);
+
+        if (statusResponse?.Status is null or "")
+        {
+            throw new SlcHubConnectivityException(
+                "The SLC Hub returned a success response but did not include a job status.");
+        }
+
+        return statusResponse.Status;
+    }
+
+    /// <summary>
+    /// Retrieves the program log for a job from the Altair SLC Hub.
+    /// </summary>
+    /// <param name="bearerToken">The Bearer Token obtained from <see cref="LoginAsync"/>.</param>
+    /// <param name="jobId">The Job ID to query.</param>
+    /// <param name="ct">Caller-supplied cancellation token.</param>
+    /// <returns>The program log text.</returns>
+    /// <exception cref="SlcHubException">Thrown when the Hub returns a 4xx or 5xx response.</exception>
+    /// <exception cref="SlcHubConnectivityException">Thrown on timeout or network-level failure.</exception>
+    public async Task<string> GetProgramLogAsync(string bearerToken, string jobId, CancellationToken ct)
+    {
+        // 10-second timeout for log fetches (per design spec).
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
+
+        HttpResponseMessage response;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"/jobs/{jobId}/log");
+            request.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+
+            response = await _http.SendAsync(request, cts.Token);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new SlcHubConnectivityException(
+                "The log fetch request timed out after 10 seconds.", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new SlcHubConnectivityException(
+                "Unable to reach the SLC Hub. Check your network connection.", ex);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            throw new SlcHubException((int)response.StatusCode, errorBody);
+        }
+
+        var logResponse = await response.Content.ReadFromJsonAsync<JobLogDto>(
+            _jsonOptions, ct);
+
+        // An empty log is valid (job may not have produced output yet).
+        return logResponse?.Log ?? "";
+    }
+
     // DTO for the Hub's login response body.
     private sealed class LoginResponse
     {
@@ -153,5 +254,19 @@ public class SlcHubClient
     {
         [JsonPropertyName("jobId")]
         public string? JobId { get; set; }
+    }
+
+    // DTO for the Hub's job status response body.
+    private sealed class JobStatusDto
+    {
+        [JsonPropertyName("status")]
+        public string? Status { get; set; }
+    }
+
+    // DTO for the Hub's job log response body.
+    private sealed class JobLogDto
+    {
+        [JsonPropertyName("log")]
+        public string? Log { get; set; }
     }
 }

@@ -1,0 +1,136 @@
+﻿@using Microsoft.AspNetCore.Antiforgery
+@inject IAntiforgery Antiforgery
+@{
+    ViewData["Title"] = "Configure Output";
+    var tokens = Antiforgery.GetAndStoreTokens(Context);
+}
+
+@section Styles {
+    @* DevExtreme CSS *@
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/devextreme@25.2.7/dist/css/dx.light.css" />
+
+    <style>
+        /* ── Page layout ─────────────────────────────────────────── */
+        .page-content {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 12px 0;
+        }
+
+        /* ── Toolbar ─────────────────────────────────────────────── */
+        .toolbar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* ── Monaco editor container (Req 2.3) ───────────────────── */
+        #monacoContainer {
+            min-height: 50vh;
+            height: 55vh;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        /* ── Log content inside the tab panel ───────────────────── */
+        #logContent {
+            margin: 0;
+            padding: 8px 12px;
+            font-family: "Consolas", "Courier New", monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            overflow-y: auto;
+            max-height: 30vh;
+            min-height: 120px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+    </style>
+}
+
+@* Anti-forgery token for fetch() calls (Req 7.6) *@
+<meta name="RequestVerificationToken" content="@tokens.RequestToken" />
+
+<div class="page-content">
+
+    @* ── Toolbar: Run / Cancel / Logout buttons (Req 2.1, 2.6, 2.7) ── *@
+    <div class="toolbar-row">
+        <div id="btnRun"></div>
+        <div id="btnCancel"></div>
+        <div id="btnLogout" style="margin-left:auto;"></div>
+    </div>
+
+    @* ── Monaco editor (Req 2.3, 2.4, 2.9) ── *@
+    <div id="monacoContainer"></div>
+
+    @* ── Tab panel with Log tab (Req 2.5, 2.8, 2.10) ── *@
+    <div id="logTabPanel"></div>
+
+</div>
+
+@section Scripts {
+    @* DevExtreme JS *@
+    <script src="https://cdn.jsdelivr.net/npm/devextreme@25.2.7/dist/js/dx.all.js"></script>
+
+    <script>
+        (function () {
+            // ── Run button (Req 2.6) ──────────────────────────────────────────
+            DevExpress.ui.dxButton(document.getElementById('btnRun'), {
+                text: 'Run',
+                type: 'success',
+                disabled: false,
+                onClick: function () {
+                    if (typeof window.onRunClick === 'function') {
+                        window.onRunClick();
+                    }
+                }
+            });
+
+            // ── Cancel button (Req 2.7) ───────────────────────────────────────
+            DevExpress.ui.dxButton(document.getElementById('btnCancel'), {
+                text: 'Cancel',
+                type: 'danger',
+                disabled: true,
+                onClick: function () {
+                    if (typeof window.onCancelClick === 'function') {
+                        window.onCancelClick();
+                    }
+                }
+            });
+
+            // ── Logout button (Req 1.9, 2.1) ─────────────────────────────────
+            DevExpress.ui.dxButton(document.getElementById('btnLogout'), {
+                text: 'Logout',
+                type: 'normal',
+                onClick: function () {
+                    if (typeof window.onLogoutClick === 'function') {
+                        window.onLogoutClick();
+                    }
+                }
+            });
+
+            // ── Tab panel with a single "Log" tab (Req 2.5, 2.8, 2.10) ──────
+            DevExpress.ui.dxTabPanel(document.getElementById('logTabPanel'), {
+                items: [
+                    {
+                        title: 'Log',
+                        template: function () {
+                            return '<pre id="logContent"></pre>';
+                        }
+                    }
+                ],
+                selectedIndex: 0,
+                animationEnabled: false
+            });
+        }());
+    </script>
+
+    @* Monaco Editor CDN loader (Req 2.4, 2.9) *@
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/loader.js"></script>
+
+    @* Configure Output client logic (Tasks 11.1, 11.2, 11.3) *@
+    <script src="~/js/configure-output.js" asp-append-version="true"></script>
+}

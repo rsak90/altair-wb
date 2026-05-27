@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "dgSpecHash": "RzlerT3UU1A=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\USER\\altair-wb\\SasJobRunner\\SasJobRunner.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\USER\\.nuget\\packages\\devexpress.data\\25.2.7\\devexpress.data.25.2.7.nupkg.sha512",
+    "C:\\Users\\USER\\.nuget\\packages\\devextreme.aspnet.core\\25.2.7\\devextreme.aspnet.core.25.2.7.nupkg.sha512",
+    "C:\\Users\\USER\\.nuget\\packages\\devextreme.aspnet.data\\5.1.0\\devextreme.aspnet.data.5.1.0.nupkg.sha512",
+    "C:\\Users\\USER\\.nuget\\packages\\microsoft.win32.systemevents\\8.0.0\\microsoft.win32.systemevents.8.0.0.nupkg.sha512",
+    "C:\\Users\\USER\\.nuget\\packages\\system.drawing.common\\8.0.15\\system.drawing.common.8.0.15.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -33,6 +33,35 @@ public class SlcHubClient
     private string Url(string relativePath) => _baseUrl + relativePath;
 
     /// <summary>
+    /// Executes <paramref name="operation"/> and converts any
+    /// <see cref="OperationCanceledException"/> into a <see cref="SlcHubConnectivityException"/>
+    /// so callers always receive a typed, user-friendly error rather than a raw cancellation.
+    /// </summary>
+    private static async Task<T> GuardAsync<T>(Func<Task<T>> operation, string timeoutMessage)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (OperationCanceledException ex)
+        {
+            throw new SlcHubConnectivityException(timeoutMessage, ex);
+        }
+    }
+
+    private static async Task GuardAsync(Func<Task> operation, string timeoutMessage)
+    {
+        try
+        {
+            await operation();
+        }
+        catch (OperationCanceledException ex)
+        {
+            throw new SlcHubConnectivityException(timeoutMessage, ex);
+        }
+    }
+
+    /// <summary>
     /// Authenticates against the Altair SLC Hub and returns the Bearer Token.
     /// </summary>
     /// <param name="username">The user's username.</param>
@@ -43,57 +72,37 @@ public class SlcHubClient
     /// <exception cref="SlcHubConnectivityException">Thrown on timeout or network-level failure.</exception>
     public async Task<string> LoginAsync(string username, string password, CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(30));
-
-        var requestBody = new { username, password };
-
-        HttpResponseMessage response;
-        try
+        return await GuardAsync(async () =>
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+
             var request = new HttpRequestMessage(HttpMethod.Post, Url("auth/login"))
             {
-                Content = JsonContent.Create(requestBody, options: _jsonOptions)
+                Content = JsonContent.Create(new { username, password }, options: _jsonOptions)
             };
 
-            response = await _http.SendAsync(request, cts.Token);
-        }
-        catch (OperationCanceledException ex) when (cts.IsCancellationRequested && !ct.IsCancellationRequested)
-        {
-            // Our timeout fired — the caller did not cancel.
-            throw new SlcHubConnectivityException(
-                "The login request timed out after 30 seconds.", ex);
-        }
-        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
-        {
-            // Either our timeout or the caller cancelled — treat both as connectivity failure
-            // so the controller can show a user-friendly message instead of a raw exception.
-            throw new SlcHubConnectivityException(
-                "The login request was cancelled or timed out.", ex);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new SlcHubConnectivityException(
-                "Unable to reach the SLC Hub. Check your network connection.", ex);
-        }
+            HttpResponseMessage response;
+            try { response = await _http.SendAsync(request, cts.Token); }
+            catch (HttpRequestException ex)
+            {
+                throw new SlcHubConnectivityException(
+                    "Unable to reach the SLC Hub. Check your network connection.", ex);
+            }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            throw new SlcHubException((int)response.StatusCode, errorBody);
-        }
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
+                throw new SlcHubException((int)response.StatusCode, errorBody);
+            }
 
-        // Deserialize { "token": "..." }
-        var loginResponse = await response.Content.ReadFromJsonAsync<LoginResponse>(
-            _jsonOptions, ct);
+            var result = await response.Content.ReadFromJsonAsync<LoginResponse>(_jsonOptions, CancellationToken.None);
+            if (result?.Token is null or "")
+                throw new SlcHubConnectivityException(
+                    "The SLC Hub returned a success response but did not include a token.");
 
-        if (loginResponse?.Token is null or "")
-        {
-            throw new SlcHubConnectivityException(
-                "The SLC Hub returned a success response but did not include a token.");
-        }
-
-        return loginResponse.Token;
+            return result.Token;
+        }, "The login request timed out or was cancelled.");
     }
 
     /// <summary>
@@ -102,59 +111,50 @@ public class SlcHubClient
     /// </summary>
     public async Task<string> CreateJobAsync(string bearerToken, string sasCode, CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(30));
-
-        var createBody = new
+        return await GuardAsync(async () =>
         {
-            @namespace = _namespace,
-            executionProfileId = _executionProfileId,
-            task = new
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+            var body = new
             {
-                type = "slc",
-                programSource = new
+                @namespace = _namespace,
+                executionProfileId = _executionProfileId,
+                task = new
                 {
-                    type = "inline",
-                    code = sasCode
+                    type = "slc",
+                    programSource = new { type = "inline", code = sasCode }
                 }
-            }
-        };
+            };
 
-        HttpResponseMessage response;
-        try
-        {
             var request = new HttpRequestMessage(HttpMethod.Post, Url("jobs"))
             {
-                Content = JsonContent.Create(createBody, options: _jsonOptions)
+                Content = JsonContent.Create(body, options: _jsonOptions)
             };
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
-            response = await _http.SendAsync(request, cts.Token);
-        }
-        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
-        {
-            throw new SlcHubConnectivityException(
-                "The job creation request timed out after 30 seconds.", ex);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new SlcHubConnectivityException(
-                "Unable to reach the SLC Hub. Check your network connection.", ex);
-        }
+            HttpResponseMessage response;
+            try { response = await _http.SendAsync(request, cts.Token); }
+            catch (HttpRequestException ex)
+            {
+                throw new SlcHubConnectivityException(
+                    "Unable to reach the SLC Hub. Check your network connection.", ex);
+            }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            throw new SlcHubException((int)response.StatusCode, errorBody);
-        }
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
+                throw new SlcHubException((int)response.StatusCode, errorBody);
+            }
 
-        var created = await response.Content.ReadFromJsonAsync<JobDto>(_jsonOptions, ct);
-        if (created?.Id is null or "")
-            throw new SlcHubConnectivityException(
-                "The SLC Hub created the job but did not return a job ID.");
+            var created = await response.Content.ReadFromJsonAsync<JobDto>(_jsonOptions, CancellationToken.None);
+            if (created?.Id is null or "")
+                throw new SlcHubConnectivityException(
+                    "The SLC Hub created the job but did not return a job ID.");
 
-        return created.Id;
+            return created.Id;
+        }, "The job creation request timed out or was cancelled.");
     }
 
     /// <summary>
@@ -162,34 +162,29 @@ public class SlcHubClient
     /// </summary>
     public async Task CommitJobAsync(string bearerToken, string jobId, CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(30));
-
-        HttpResponseMessage response;
-        try
+        await GuardAsync(async () =>
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+
             var request = new HttpRequestMessage(HttpMethod.Post, Url($"jobs/{jobId}/commit"));
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
-            response = await _http.SendAsync(request, cts.Token);
-        }
-        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
-        {
-            throw new SlcHubConnectivityException(
-                "The job commit request timed out after 30 seconds.", ex);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new SlcHubConnectivityException(
-                "Unable to reach the SLC Hub during job commit. Check your network connection.", ex);
-        }
+            HttpResponseMessage response;
+            try { response = await _http.SendAsync(request, cts.Token); }
+            catch (HttpRequestException ex)
+            {
+                throw new SlcHubConnectivityException(
+                    "Unable to reach the SLC Hub during job commit. Check your network connection.", ex);
+            }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            throw new SlcHubException((int)response.StatusCode, errorBody);
-        }
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
+                throw new SlcHubException((int)response.StatusCode, errorBody);
+            }
+        }, "The job commit request timed out or was cancelled.");
     }
 
     /// <summary>
@@ -209,35 +204,29 @@ public class SlcHubClient
     /// </summary>
     public async Task CancelJobAsync(string bearerToken, string jobId, CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(30));
-
-        HttpResponseMessage response;
-        try
+        await GuardAsync(async () =>
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+
             var request = new HttpRequestMessage(HttpMethod.Post, Url($"jobs/{jobId}/cancel"));
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
-            response = await _http.SendAsync(request, cts.Token);
-        }
-        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
-        {
-            throw new SlcHubConnectivityException(
-                "The cancel request timed out after 30 seconds.", ex);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new SlcHubConnectivityException(
-                "Unable to reach the SLC Hub. Check your network connection.", ex);
-        }
+            HttpResponseMessage response;
+            try { response = await _http.SendAsync(request, cts.Token); }
+            catch (HttpRequestException ex)
+            {
+                throw new SlcHubConnectivityException(
+                    "Unable to reach the SLC Hub. Check your network connection.", ex);
+            }
 
-        // 202 Accepted is the success response per the API spec.
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            throw new SlcHubException((int)response.StatusCode, errorBody);
-        }
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
+                throw new SlcHubException((int)response.StatusCode, errorBody);
+            }
+        }, "The cancel request timed out or was cancelled.");
     }
 
     /// <summary>
@@ -246,52 +235,45 @@ public class SlcHubClient
     /// </summary>
     public async Task<string> GetJobStatusAsync(string bearerToken, string jobId, CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(10));
-
-        HttpResponseMessage response;
-        try
+        return await GuardAsync(async () =>
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+
             var request = new HttpRequestMessage(HttpMethod.Get, Url($"jobs/{jobId}/status"));
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
-            response = await _http.SendAsync(request, cts.Token);
-        }
-        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
-        {
-            throw new SlcHubConnectivityException(
-                "The status poll request timed out after 10 seconds.", ex);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new SlcHubConnectivityException(
-                "Unable to reach the SLC Hub. Check your network connection.", ex);
-        }
+            HttpResponseMessage response;
+            try { response = await _http.SendAsync(request, cts.Token); }
+            catch (HttpRequestException ex)
+            {
+                throw new SlcHubConnectivityException(
+                    "Unable to reach the SLC Hub. Check your network connection.", ex);
+            }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            throw new SlcHubException((int)response.StatusCode, errorBody);
-        }
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
+                throw new SlcHubException((int)response.StatusCode, errorBody);
+            }
 
-        var statusResponse = await response.Content.ReadFromJsonAsync<JobStatusDto>(_jsonOptions, ct);
+            var result = await response.Content.ReadFromJsonAsync<JobStatusDto>(_jsonOptions, CancellationToken.None);
+            if (result?.State is null or "")
+                throw new SlcHubConnectivityException(
+                    "The SLC Hub returned a success response but did not include a job state.");
 
-        if (statusResponse?.State is null or "")
-            throw new SlcHubConnectivityException(
-                "The SLC Hub returned a success response but did not include a job state.");
-
-        // Map Hub state values → internal UI state values
-        return statusResponse.State switch
-        {
-            "Creating" or "Pending"  => "Submitted",
-            "Executing"              => "Running",
-            "CompletedSuccess"       => "Completed",
-            "CompletedError"         => "Failed",
-            "Failed"                 => "Failed",
-            "Cancelled"              => "Cancelled",
-            _                        => statusResponse.State   // pass through unknowns
-        };
+            return result.State switch
+            {
+                "Creating" or "Pending" => "Submitted",
+                "Executing"             => "Running",
+                "CompletedSuccess"      => "Completed",
+                "CompletedError"        => "Failed",
+                "Failed"                => "Failed",
+                "Cancelled"             => "Cancelled",
+                _                       => result.State
+            };
+        }, "The status poll request timed out or was cancelled.");
     }
 
     /// <summary>
@@ -300,41 +282,34 @@ public class SlcHubClient
     /// </summary>
     public async Task<string> GetProgramLogAsync(string bearerToken, string jobId, CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(10));
-
-        HttpResponseMessage response;
-        try
+        return await GuardAsync(async () =>
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+
             var request = new HttpRequestMessage(HttpMethod.Get, Url($"jobs/{jobId}/logs/stdout"));
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
-            response = await _http.SendAsync(request, cts.Token);
-        }
-        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
-        {
-            throw new SlcHubConnectivityException(
-                "The log fetch request timed out after 10 seconds.", ex);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new SlcHubConnectivityException(
-                "Unable to reach the SLC Hub. Check your network connection.", ex);
-        }
+            HttpResponseMessage response;
+            try { response = await _http.SendAsync(request, cts.Token); }
+            catch (HttpRequestException ex)
+            {
+                throw new SlcHubConnectivityException(
+                    "Unable to reach the SLC Hub. Check your network connection.", ex);
+            }
 
-        // 404 while the job is still starting up means no log yet — return empty.
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return "";
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return "";
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            throw new SlcHubException((int)response.StatusCode, errorBody);
-        }
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
+                throw new SlcHubException((int)response.StatusCode, errorBody);
+            }
 
-        // Response is plain text, not JSON.
-        return await response.Content.ReadAsStringAsync(ct);
+            return await response.Content.ReadAsStringAsync(CancellationToken.None);
+        }, "The log fetch request timed out or was cancelled.");
     }
 
     // DTO for the Hub's login response body.

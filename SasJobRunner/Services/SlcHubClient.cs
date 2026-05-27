@@ -18,6 +18,13 @@ public class SlcHubClient
         _http = http;
         var baseUrl = configuration["SlcHub:BaseUrl"]
             ?? throw new InvalidOperationException("SlcHub:BaseUrl is not configured.");
+
+        // BaseAddress MUST end with a trailing slash for relative URI combining to work
+        // correctly. Without it, HttpClient strips the last path segment when resolving
+        // relative paths (standard Uri combining behavior).
+        if (!baseUrl.EndsWith('/'))
+            baseUrl += '/';
+
         _http.BaseAddress = new Uri(baseUrl);
     }
 
@@ -32,7 +39,6 @@ public class SlcHubClient
     /// <exception cref="SlcHubConnectivityException">Thrown on timeout or network-level failure.</exception>
     public async Task<string> LoginAsync(string username, string password, CancellationToken ct)
     {
-        // Link a 30-second timeout to the caller's cancellation token.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(30));
 
@@ -41,18 +47,25 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, "/auth/login")
+            var request = new HttpRequestMessage(HttpMethod.Post, "auth/login")
             {
                 Content = JsonContent.Create(requestBody, options: _jsonOptions)
             };
 
             response = await _http.SendAsync(request, cts.Token);
         }
-        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (cts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            // The linked CTS timed out (not the caller's token).
+            // Our timeout fired — the caller did not cancel.
             throw new SlcHubConnectivityException(
                 "The login request timed out after 30 seconds.", ex);
+        }
+        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
+        {
+            // Either our timeout or the caller cancelled — treat both as connectivity failure
+            // so the controller can show a user-friendly message instead of a raw exception.
+            throw new SlcHubConnectivityException(
+                "The login request was cancelled or timed out.", ex);
         }
         catch (HttpRequestException ex)
         {
@@ -99,7 +112,7 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, "/jobs")
+            var request = new HttpRequestMessage(HttpMethod.Post, "jobs")
             {
                 Content = JsonContent.Create(requestBody, options: _jsonOptions)
             };
@@ -110,9 +123,8 @@ public class SlcHubClient
 
             response = await _http.SendAsync(request, cts.Token);
         }
-        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
         {
-            // The linked CTS timed out (not the caller's token).
             throw new SlcHubConnectivityException(
                 "The job submission request timed out after 30 seconds.", ex);
         }
@@ -158,13 +170,13 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Delete, $"/jobs/{jobId}");
+            var request = new HttpRequestMessage(HttpMethod.Delete, $"jobs/{jobId}");
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
             response = await _http.SendAsync(request, cts.Token);
         }
-        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
         {
             throw new SlcHubConnectivityException(
                 "The cancel request timed out after 30 seconds.", ex);
@@ -201,13 +213,13 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"/jobs/{jobId}/status");
+            var request = new HttpRequestMessage(HttpMethod.Get, $"jobs/{jobId}/status");
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
             response = await _http.SendAsync(request, cts.Token);
         }
-        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
         {
             throw new SlcHubConnectivityException(
                 "The status poll request timed out after 10 seconds.", ex);
@@ -254,13 +266,13 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"/jobs/{jobId}/log");
+            var request = new HttpRequestMessage(HttpMethod.Get, $"jobs/{jobId}/log");
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
             response = await _http.SendAsync(request, cts.Token);
         }
-        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (cts.IsCancellationRequested)
         {
             throw new SlcHubConnectivityException(
                 "The log fetch request timed out after 10 seconds.", ex);

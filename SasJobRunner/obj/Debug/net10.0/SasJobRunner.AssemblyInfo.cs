@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SasJobRunner")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+277f7b89a0e65fd3209095dd6f0840fd8f795a4e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+98e637ba117303999e43220201511113d56344ff")]
 [assembly: System.Reflection.AssemblyProductAttribute("SasJobRunner")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SasJobRunner")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

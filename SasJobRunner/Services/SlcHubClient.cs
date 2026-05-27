@@ -10,6 +10,7 @@ namespace SasJobRunner.Services;
 public class SlcHubClient
 {
     private readonly HttpClient _http;
+    private readonly string _baseUrl;
 
     private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -19,14 +20,13 @@ public class SlcHubClient
         var baseUrl = configuration["SlcHub:BaseUrl"]
             ?? throw new InvalidOperationException("SlcHub:BaseUrl is not configured.");
 
-        // BaseAddress MUST end with a trailing slash for relative URI combining to work
-        // correctly. Without it, HttpClient strips the last path segment when resolving
-        // relative paths (standard Uri combining behavior).
-        if (!baseUrl.EndsWith('/'))
-            baseUrl += '/';
-
-        _http.BaseAddress = new Uri(baseUrl);
+        // Normalise: always end with a trailing slash so string concatenation
+        // of relative paths produces correct absolute URLs.
+        _baseUrl = baseUrl.EndsWith('/') ? baseUrl : baseUrl + '/';
     }
+
+    /// <summary>Builds an absolute URL by appending <paramref name="relativePath"/> to the base URL.</summary>
+    private string Url(string relativePath) => _baseUrl + relativePath;
 
     /// <summary>
     /// Authenticates against the Altair SLC Hub and returns the Bearer Token.
@@ -47,7 +47,7 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, "auth/login")
+            var request = new HttpRequestMessage(HttpMethod.Post, Url("auth/login"))
             {
                 Content = JsonContent.Create(requestBody, options: _jsonOptions)
             };
@@ -112,7 +112,7 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, "jobs")
+            var request = new HttpRequestMessage(HttpMethod.Post, Url("jobs"))
             {
                 Content = JsonContent.Create(requestBody, options: _jsonOptions)
             };
@@ -170,7 +170,7 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Delete, $"jobs/{jobId}");
+            var request = new HttpRequestMessage(HttpMethod.Delete, Url($"jobs/{jobId}"));
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
@@ -213,7 +213,7 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"jobs/{jobId}/status");
+            var request = new HttpRequestMessage(HttpMethod.Get, Url($"jobs/{jobId}/status"));
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 
@@ -266,7 +266,7 @@ public class SlcHubClient
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"jobs/{jobId}/log");
+            var request = new HttpRequestMessage(HttpMethod.Get, Url($"jobs/{jobId}/log"));
             request.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
 

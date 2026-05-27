@@ -8,8 +8,9 @@ var config = builder.Configuration;
 // MVC with views (anti-forgery is registered automatically by AddControllersWithViews)
 builder.Services.AddControllersWithViews();
 
-// Typed HttpClient for the Altair SLC Hub
-builder.Services.AddHttpClient<SlcHubClient>();
+// Typed HttpClient for the Altair SLC Hub — with request/response logging in Development
+builder.Services.AddHttpClient<SlcHubClient>()
+    .AddHttpMessageHandler(() => new DiagnosticLoggingHandler());
 
 // Distributed memory cache required by session middleware
 builder.Services.AddDistributedMemoryCache();

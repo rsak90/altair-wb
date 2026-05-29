@@ -317,11 +317,21 @@ async function fetchJobLog(jobId) {
             }
         });
 
-        window.monacoEditor = monaco.editor.create(
-            document.getElementById('monacoContainer'),
-            { value: '', language: 'sas', theme: 'vs', automaticLayout: true }
-        );
+        // monacoContainer is rendered by the Program tab template.
+        // Poll until the element exists in the DOM (tab panel renders it on first selection).
+        function tryCreateEditor() {
+            var container = document.getElementById('monacoContainer');
+            if (!container) {
+                setTimeout(tryCreateEditor, 50);
+                return;
+            }
+            window.monacoEditor = monaco.editor.create(
+                container,
+                { value: '', language: 'sas', theme: 'vs', automaticLayout: true }
+            );
+            setState('idle');
+        }
 
-        setState('idle');
+        tryCreateEditor();
     });
 }());

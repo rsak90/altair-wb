@@ -28,13 +28,25 @@
             gap: 8px;
         }
 
+        /* ── Main tab panel ──────────────────────────────────────── */
+        #mainTabPanel {
+            flex: 1;
+        }
+
         /* ── Monaco editor container (Req 2.3) ───────────────────── */
         #monacoContainer {
-            min-height: 50vh;
-            height: 55vh;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            height: 60vh;
+            border: none;
             overflow: hidden;
+        }
+
+        /* ── Tab content areas ───────────────────────────────────── */
+        .tab-pane-output,
+        .tab-pane-files {
+            padding: 12px;
+            min-height: 200px;
+            color: #555;
+            font-size: 0.9rem;
         }
 
         /* ── Log content inside the tab panel ───────────────────── */
@@ -46,7 +58,7 @@
             white-space: pre-wrap;
             word-break: break-all;
             overflow-y: auto;
-            max-height: 30vh;
+            height: 60vh;
             min-height: 120px;
             background: #1e1e1e;
             color: #d4d4d4;
@@ -66,11 +78,8 @@
         <div id="btnLogout" style="margin-left:auto;"></div>
     </div>
 
-    @* ── Monaco editor (Req 2.3, 2.4, 2.9) ── *@
-    <div id="monacoContainer"></div>
-
-    @* ── Tab panel with Log tab (Req 2.5, 2.8, 2.10) ── *@
-    <div id="logTabPanel"></div>
+    @* ── Main tab panel: Program / Output / Files / Log ── *@
+    <div id="mainTabPanel"></div>
 
 </div>
 
@@ -120,12 +129,32 @@
                     }
                 });
 
-                // ── Log tab panel ─────────────────────────────────────────────
-                new DevExpress.ui.dxTabPanel(document.getElementById('logTabPanel'), {
-                    items: [{
-                        title: 'Log',
-                        template: function () { return '<pre id="logContent"></pre>'; }
-                    }],
+                // ── Main tab panel: Program / Output / Files / Log ──────────
+                new DevExpress.ui.dxTabPanel(document.getElementById('mainTabPanel'), {
+                    items: [
+                        {
+                            title: 'Program',
+                            template: function () {
+                                return '<div id="monacoContainer"></div>';
+                            }
+                        },
+                        {
+                            title: 'Output',
+                            template: function () {
+                                return '<div class="tab-pane-output"><em>Output will appear here after the job completes.</em></div>';
+                            }
+                        },
+                        {
+                            title: 'Files',
+                            template: function () {
+                                return '<div class="tab-pane-files"><em>Generated files will be listed here.</em></div>';
+                            }
+                        },
+                        {
+                            title: 'Log',
+                            template: function () { return '<pre id="logContent"></pre>'; }
+                        }
+                    ],
                     selectedIndex: 0,
                     animationEnabled: false
                 });

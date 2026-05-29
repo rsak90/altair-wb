@@ -33,6 +33,12 @@ function btn(id) {
     return DevExpress.ui.dxButton.getInstance(document.getElementById(id));
 }
 
+// Switch the main tab panel to the Log tab (index 3).
+function switchToLogTab() {
+    var tabPanel = DevExpress.ui.dxTabPanel.getInstance(document.getElementById('mainTabPanel'));
+    if (tabPanel) tabPanel.option('selectedIndex', 3);
+}
+
 // ---------------------------------------------------------------------------
 // Button state machine
 //
@@ -256,6 +262,7 @@ async function pollCycle() {
         } catch (_) {}
         state.jobId = null;
         setState('idle');
+        switchToLogTab();   // auto-activate Log tab so the user sees the result
     } else if (status === 'Cancelled') {
         stopPolling();
         state.jobId = null;

@@ -8,44 +8,182 @@
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/SasJobRunner.styles.css" asp-append-version="true" />
+    <style>
+        /* ── App shell ───────────────────────────────────────────── */
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .app-shell {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* ── Top bar ─────────────────────────────────────────────── */
+        .topbar {
+            display: flex;
+            align-items: center;
+            height: 48px;
+            padding: 0 16px;
+            background: #1a1a2e;
+            color: #fff;
+            flex-shrink: 0;
+            gap: 12px;
+            z-index: 100;
+        }
+
+        .topbar-brand {
+            font-weight: 600;
+            font-size: 1rem;
+            color: #fff;
+            text-decoration: none;
+            letter-spacing: 0.02em;
+        }
+
+        .topbar-brand:hover { color: #ccc; }
+
+        .topbar-toggle {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 4px 6px;
+            line-height: 1;
+        }
+
+        .topbar-toggle:hover { color: #ccc; }
+
+        /* ── Body row (sidebar + content) ────────────────────────── */
+        .body-row {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ─────────────────────────────────────────────── */
+        .sidebar {
+            width: 220px;
+            background: #16213e;
+            color: #c9d1d9;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            transition: width 0.2s ease;
+            overflow: hidden;
+        }
+
+        .sidebar.collapsed {
+            width: 0;
+        }
+
+        .sidebar-nav {
+            list-style: none;
+            margin: 8px 0 0;
+            padding: 0;
+        }
+
+        .sidebar-nav li a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px;
+            color: #c9d1d9;
+            text-decoration: none;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            border-left: 3px solid transparent;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .sidebar-nav li a:hover {
+            background: rgba(255,255,255,0.07);
+            color: #fff;
+        }
+
+        .sidebar-nav li a.active {
+            background: rgba(255,255,255,0.1);
+            border-left-color: #58a6ff;
+            color: #fff;
+        }
+
+        .sidebar-nav li a .nav-icon {
+            font-size: 1rem;
+            width: 18px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        /* ── Main content ────────────────────────────────────────── */
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 20px;
+            background: #f8f9fa;
+        }
+    </style>
     @await RenderSectionAsync("Styles", required: false)
 </head>
 <body>
-    <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
-            <div class="container-fluid">
-                <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">SasJobRunner</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    <ul class="navbar-nav flex-grow-1">
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </nav>
-    </header>
-    <div class="container">
-        <main role="main" class="pb-3">
-            @RenderBody()
-        </main>
+<div class="app-shell">
+
+    @* ── Top bar ── *@
+    <div class="topbar">
+        <button class="topbar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">&#9776;</button>
+        <a class="topbar-brand" asp-controller="Home" asp-action="Index">SasJobRunner</a>
     </div>
 
-    <footer class="border-top footer text-muted">
-        <div class="container">
-            &copy; 2026 - SasJobRunner - <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
-        </div>
-    </footer>
-    <script src="~/lib/jquery/dist/jquery.min.js"></script>
-    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="~/js/site.js" asp-append-version="true"></script>
-    @await RenderSectionAsync("Scripts", required: false)
+    <div class="body-row">
+
+        @* ── Sidebar ── *@
+        <nav class="sidebar" id="sidebar" aria-label="Main navigation">
+            <ul class="sidebar-nav">
+                <li>
+                    <a asp-controller="Home" asp-action="Index"
+                       class="@(ViewContext.RouteData.Values["action"]?.ToString() == "Index" ? "active" : "")">
+                        <span class="nav-icon">&#128196;</span>
+                        Output
+                    </a>
+                </li>
+                <li>
+                    <a asp-controller="Home" asp-action="BatchRun"
+                       class="@(ViewContext.RouteData.Values["action"]?.ToString() == "BatchRun" ? "active" : "")">
+                        <span class="nav-icon">&#9654;</span>
+                        Batch Run
+                    </a>
+                </li>
+            </ul>
+        </nav>
+
+        @* ── Page content ── *@
+        <main class="main-content" role="main">
+            @RenderBody()
+        </main>
+
+    </div>
+</div>
+
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script src="~/js/site.js" asp-append-version="true"></script>
+<script>
+    // Sidebar toggle
+    (function () {
+        var sidebar = document.getElementById('sidebar');
+        var toggle  = document.getElementById('sidebarToggle');
+        var key     = 'sidebarCollapsed';
+
+        if (localStorage.getItem(key) === '1') sidebar.classList.add('collapsed');
+
+        toggle.addEventListener('click', function () {
+            sidebar.classList.toggle('collapsed');
+            localStorage.setItem(key, sidebar.classList.contains('collapsed') ? '1' : '0');
+        });
+    }());
+</script>
+@await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

@@ -16,10 +16,12 @@ namespace SasJobRunner.Controllers.Api;
 public class JobApiController : ControllerBase
 {
     private readonly SlcHubClient _hub;
+    private readonly IConfiguration _config;
 
-    public JobApiController(SlcHubClient hub)
+    public JobApiController(SlcHubClient hub, IConfiguration config)
     {
         _hub = hub;
+        _config = config;
     }
 
     // ── Auth helper ──────────────────────────────────────────────────────────
@@ -32,6 +34,46 @@ public class JobApiController : ControllerBase
     {
         var token = HttpContext.Session.GetString("BearerToken");
         return string.IsNullOrEmpty(token) ? null : token;
+    }
+
+    // ── POST /api/jobs/save ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Saves the SAS program to a .sas file at the configured network path
+    /// (SasOutput:NetworkPath in appsettings.json).
+    /// The file is named using the current UTC timestamp: yyyyMMdd_HHmmss.sas
+    /// </summary>
+    [HttpPost("save")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Save([FromBody] JobSubmitRequest request, CancellationToken ct)
+    {
+        var bearerToken = GetBearerToken();
+        if (bearerToken is null)
+            return StatusCode(401, new ApiErrorResponse { StatusCode = 401, Message = "Session expired or not authenticated. Please log in again." });
+
+        if (string.IsNullOrWhiteSpace(request.SasCode))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "SAS code cannot be empty." });
+
+        var networkPath = _config["SasOutput:NetworkPath"];
+        if (string.IsNullOrWhiteSpace(networkPath))
+            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "SasOutput:NetworkPath is not configured in appsettings.json." });
+
+        try
+        {
+            // Ensure the directory exists (works for local and UNC paths)
+            Directory.CreateDirectory(networkPath);
+
+            var fileName = $"{DateTime.UtcNow:yyyyMMdd_HHmmss}.sas";
+            var fullPath = Path.Combine(networkPath, fileName);
+
+            await System.IO.File.WriteAllTextAsync(fullPath, request.SasCode, System.Text.Encoding.UTF8, ct);
+
+            return Ok(new { filePath = fullPath, fileName });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = $"Failed to save SAS file: {ex.Message}" });
+        }
     }
 
     // ── POST /api/jobs/submit ────────────────────────────────────────────────

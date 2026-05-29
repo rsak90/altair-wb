@@ -1,7 +1,7 @@
 ﻿@using Microsoft.AspNetCore.Antiforgery
 @inject IAntiforgery Antiforgery
 @{
-    ViewData["Title"] = "Configure Output";
+    ViewData["Title"] = "Output";
     var tokens = Antiforgery.GetAndStoreTokens(Context);
 }
 

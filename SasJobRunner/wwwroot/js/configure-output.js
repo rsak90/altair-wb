@@ -98,7 +98,8 @@ async function onCreateClick() {
             var data = await response.json();
             state.jobId = data.jobId;
             state.lastLog = '';
-            setLogText('Job created (ID: ' + state.jobId + '). Click Run to submit for execution.');
+            var fileInfo = data.filePath ? '\nSaved to: ' + data.filePath : '';
+            setLogText('Job created (ID: ' + state.jobId + ').' + fileInfo + '\nClick Run to submit for execution.');
             setState('created');
         } else {
             var errorData = null;
@@ -114,7 +115,7 @@ async function onCreateClick() {
 }
 
 // ---------------------------------------------------------------------------
-// Run button — save .sas file, then POST /api/jobs/{jobId}/commit
+// Run button — POST /api/jobs/{jobId}/commit
 // ---------------------------------------------------------------------------
 async function onRunClick() {
     if (!state.jobId) {
@@ -122,39 +123,9 @@ async function onRunClick() {
         return;
     }
 
-    setLogText('Saving SAS program to network path...');
+    setLogText('Submitting job for execution...');
     setState('running');
 
-    // ── Step 1: Save the SAS code to the configured network path ──────────
-    var editorContent = window.monacoEditor ? window.monacoEditor.getValue() : '';
-    try {
-        var saveResponse = await fetch('/api/jobs/save', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'RequestVerificationToken': getAntiForgeryToken()
-            },
-            body: JSON.stringify({ sasCode: editorContent })
-        });
-
-        if (!saveResponse.ok) {
-            var saveErr = null;
-            try { saveErr = await saveResponse.json(); } catch (_) {}
-            if (saveResponse.status === 401) { window.location.href = '/account/login?expired=true'; return; }
-            setLogText('Failed to save SAS file: ' + (saveErr && saveErr.message ? saveErr.message : 'HTTP ' + saveResponse.status));
-            setState('created');
-            return;
-        }
-
-        var saveData = await saveResponse.json();
-        setLogText('SAS program saved to: ' + saveData.filePath + '\nSubmitting job for execution...');
-    } catch (e) {
-        setLogText('Unable to save SAS file. Please check your connection.');
-        setState('created');
-        return;
-    }
-
-    // ── Step 2: Commit the job ─────────────────────────────────────────────
     try {
         var response = await fetch('/api/jobs/' + encodeURIComponent(state.jobId) + '/commit', {
             method: 'POST',

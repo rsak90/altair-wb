@@ -36,43 +36,32 @@ public class JobApiController : ControllerBase
         return string.IsNullOrEmpty(token) ? null : token;
     }
 
-    // ── POST /api/jobs/save ──────────────────────────────────────────────────
+    // ── Save helper ──────────────────────────────────────────────────────────
+
+    private sealed record SaveResult(string? FilePath, string? FileName, string? Error);
 
     /// <summary>
-    /// Saves the SAS program to a .sas file at the configured network path
-    /// (SasOutput:NetworkPath in appsettings.json).
-    /// The file is named using the current UTC timestamp: yyyyMMdd_HHmmss.sas
+    /// Writes <paramref name="sasCode"/> to a timestamped .sas file under
+    /// <c>SasOutput:NetworkPath</c> and returns the full path and file name.
+    /// Returns an error message string on failure.
     /// </summary>
-    [HttpPost("save")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Save([FromBody] JobSubmitRequest request, CancellationToken ct)
+    private async Task<SaveResult> SaveSasFileAsync(string sasCode, CancellationToken ct)
     {
-        var bearerToken = GetBearerToken();
-        if (bearerToken is null)
-            return StatusCode(401, new ApiErrorResponse { StatusCode = 401, Message = "Session expired or not authenticated. Please log in again." });
-
-        if (string.IsNullOrWhiteSpace(request.SasCode))
-            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "SAS code cannot be empty." });
-
         var networkPath = _config["SasOutput:NetworkPath"];
         if (string.IsNullOrWhiteSpace(networkPath))
-            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "SasOutput:NetworkPath is not configured in appsettings.json." });
+            return new SaveResult(null, null, "SasOutput:NetworkPath is not configured in appsettings.json.");
 
         try
         {
-            // Ensure the directory exists (works for local and UNC paths)
             Directory.CreateDirectory(networkPath);
-
             var fileName = $"{DateTime.UtcNow:yyyyMMdd_HHmmss}.sas";
             var fullPath = Path.Combine(networkPath, fileName);
-
-            await System.IO.File.WriteAllTextAsync(fullPath, request.SasCode, System.Text.Encoding.UTF8, ct);
-
-            return Ok(new { filePath = fullPath, fileName });
+            await System.IO.File.WriteAllTextAsync(fullPath, sasCode, System.Text.Encoding.UTF8, ct);
+            return new SaveResult(fullPath, fileName, null);
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = $"Failed to save SAS file: {ex.Message}" });
+            return new SaveResult(null, null, $"Failed to save SAS file: {ex.Message}");
         }
     }
 
@@ -80,6 +69,8 @@ public class JobApiController : ControllerBase
 
     /// <summary>
     /// Creates AND commits a SAS job in one step (legacy combined endpoint).
+    /// Saves the SAS code to the configured network path first, then submits
+    /// the saved file path to the Hub.
     /// </summary>
     [HttpPost("submit")]
     [ValidateAntiForgeryToken]
@@ -96,11 +87,18 @@ public class JobApiController : ControllerBase
         if (Request.ContentLength.HasValue && Request.ContentLength.Value > 1_048_576)
             return StatusCode(413, new ApiErrorResponse { StatusCode = 413, Message = "The SAS program exceeds the maximum allowed size of 1 MB." });
 
+        // Save to network path first, then submit the file path to the Hub.
+        var saveResult = await SaveSasFileAsync(request.SasCode, ct);
+        if (saveResult.Error is not null)
+            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = saveResult.Error });
+
         try
         {
-            var jobId = await _hub.SubmitJobAsync(bearerToken, request.SasCode, ct);
+            var jobId = await _hub.CreateJobFromFileAsync(bearerToken, saveResult.FilePath!, ct);
+            await _hub.CommitJobAsync(bearerToken, jobId, ct);
             HttpContext.Session.SetString("ActiveJobId", jobId);
             HttpContext.Session.SetString("ActiveJobStatus", "Submitted");
+            HttpContext.Session.SetString("ActiveJobFilePath", saveResult.FilePath!);
             return Ok(new JobSubmitResponse { JobId = jobId });
         }
         catch (SlcHubException ex)
@@ -116,8 +114,9 @@ public class JobApiController : ControllerBase
     // ── POST /api/jobs/create ────────────────────────────────────────────────
 
     /// <summary>
-    /// Step 1: Creates a job on the Hub without committing it.
-    /// Returns the job ID. The job is not yet scheduled.
+    /// Step 1: Saves the SAS code to the configured network path, then creates
+    /// a job on the Hub referencing that file. The job is not yet scheduled.
+    /// Returns the job ID and the saved file path.
     /// </summary>
     [HttpPost("create")]
     [ValidateAntiForgeryToken]
@@ -134,12 +133,18 @@ public class JobApiController : ControllerBase
         if (Request.ContentLength.HasValue && Request.ContentLength.Value > 1_048_576)
             return StatusCode(413, new ApiErrorResponse { StatusCode = 413, Message = "The SAS program exceeds the maximum allowed size of 1 MB." });
 
+        // Save to network path first, then create the job referencing that file.
+        var saveResult = await SaveSasFileAsync(request.SasCode, ct);
+        if (saveResult.Error is not null)
+            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = saveResult.Error });
+
         try
         {
-            var jobId = await _hub.CreateJobAsync(bearerToken, request.SasCode, ct);
+            var jobId = await _hub.CreateJobFromFileAsync(bearerToken, saveResult.FilePath!, ct);
             HttpContext.Session.SetString("ActiveJobId", jobId);
             HttpContext.Session.SetString("ActiveJobStatus", "Created");
-            return Ok(new JobSubmitResponse { JobId = jobId });
+            HttpContext.Session.SetString("ActiveJobFilePath", saveResult.FilePath!);
+            return Ok(new { jobId, filePath = saveResult.FilePath, fileName = saveResult.FileName });
         }
         catch (SlcHubException ex)
         {
@@ -212,6 +217,7 @@ public class JobApiController : ControllerBase
             // Clear active job from Session on successful cancellation (Req 4.2).
             HttpContext.Session.Remove("ActiveJobId");
             HttpContext.Session.Remove("ActiveJobStatus");
+            HttpContext.Session.Remove("ActiveJobFilePath");
 
             return Ok();
         }

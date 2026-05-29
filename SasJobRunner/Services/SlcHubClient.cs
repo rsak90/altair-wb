@@ -106,7 +106,7 @@ public class SlcHubClient
     }
 
     /// <summary>
-    /// Creates a job on the Altair SLC Hub (step 1 of 2).
+    /// Creates a job on the Altair SLC Hub using an inline SAS code string (step 1 of 2).
     /// Returns the job ID. The job is NOT yet scheduled — call CommitJobAsync to schedule it.
     /// </summary>
     public async Task<string> CreateJobAsync(string bearerToken, string sasCode, CancellationToken ct)
@@ -124,6 +124,59 @@ public class SlcHubClient
                 {
                     type = "slc",
                     programSource = new { type = "inline", code = sasCode }
+                }
+            };
+
+            var request = new HttpRequestMessage(HttpMethod.Post, Url("jobs"))
+            {
+                Content = JsonContent.Create(body, options: _jsonOptions)
+            };
+            request.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+
+            HttpResponseMessage response;
+            try { response = await _http.SendAsync(request, cts.Token); }
+            catch (HttpRequestException ex)
+            {
+                throw new SlcHubConnectivityException(
+                    "Unable to reach the SLC Hub. Check your network connection.", ex);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
+                throw new SlcHubException((int)response.StatusCode, errorBody);
+            }
+
+            var created = await response.Content.ReadFromJsonAsync<JobDto>(_jsonOptions, CancellationToken.None);
+            if (created?.Id is null or "")
+                throw new SlcHubConnectivityException(
+                    "The SLC Hub created the job but did not return a job ID.");
+
+            return created.Id;
+        }, "The job creation request timed out or was cancelled.");
+    }
+
+    /// <summary>
+    /// Creates a job on the Altair SLC Hub using a saved .sas file path (step 1 of 2).
+    /// Sends <c>programSource.type = "path"</c> so the Hub reads the program from the file.
+    /// Returns the job ID. The job is NOT yet scheduled — call CommitJobAsync to schedule it.
+    /// </summary>
+    public async Task<string> CreateJobFromFileAsync(string bearerToken, string filePath, CancellationToken ct)
+    {
+        return await GuardAsync(async () =>
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+            var body = new
+            {
+                @namespace = _namespace,
+                executionProfileId = _executionProfileId,
+                task = new
+                {
+                    type = "slc",
+                    programSource = new { type = "path", path = filePath }
                 }
             };
 

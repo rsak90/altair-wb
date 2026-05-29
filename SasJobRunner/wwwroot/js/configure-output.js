@@ -39,6 +39,25 @@ function switchToLogTab() {
     if (tabPanel) tabPanel.option('selectedIndex', 3);
 }
 
+// Show/hide the loader overlay
+function showLoader() {
+    var loader = document.getElementById('loaderOverlay');
+    if (loader) loader.classList.add('active');
+}
+
+function hideLoader() {
+    var loader = document.getElementById('loaderOverlay');
+    if (loader) loader.classList.remove('active');
+}
+
+// Update debug info bar
+function updateDebugInfo(jobId, status) {
+    var jobIdEl = document.getElementById('debugJobId');
+    var statusEl = document.getElementById('debugJobStatus');
+    if (jobIdEl) jobIdEl.textContent = jobId || '—';
+    if (statusEl) statusEl.textContent = status || '—';
+}
+
 // ---------------------------------------------------------------------------
 // Button state machine
 //
@@ -106,6 +125,7 @@ async function onCreateClick() {
             state.lastLog = '';
             var fileInfo = data.filePath ? '\nSaved to: ' + data.filePath : '';
             setLogText('Job created (ID: ' + state.jobId + ').' + fileInfo + '\nClick Run to submit for execution.');
+            updateDebugInfo(state.jobId, 'Created');
             setState('created');
         } else {
             var errorData = null;
@@ -131,6 +151,7 @@ async function onRunClick() {
 
     setLogText('Submitting job for execution...');
     setState('running');
+    showLoader();   // show loader while waiting for job to start
 
     try {
         var response = await fetch('/api/jobs/' + encodeURIComponent(state.jobId) + '/commit', {
@@ -142,8 +163,10 @@ async function onRunClick() {
 
         if (response.ok) {
             setLogText('');       // clear log — polling will fill it
+            updateDebugInfo(state.jobId, 'Submitted');
             startPolling();
         } else {
+            hideLoader();
             var errorData = null;
             try { errorData = await response.json(); } catch (_) {}
             if (response.status === 401) { window.location.href = '/account/login?expired=true'; return; }
@@ -153,6 +176,7 @@ async function onRunClick() {
             setState('created'); // revert — job still exists, user can retry Run
         }
     } catch (e) {
+        hideLoader();
         setLogText('Unable to reach the server. Please check your connection.');
         setState('created');
     }
@@ -177,6 +201,7 @@ async function onCancelClick() {
             state.jobId = null;
             state.lastLog = '';
             setLogText('Job cancelled.');
+            updateDebugInfo(null, null);
             setState('idle');
         } else {
             var errorData = null;
